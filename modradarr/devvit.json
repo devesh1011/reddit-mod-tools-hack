@@ -1,0 +1,144 @@
+{
+  "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
+  "name": "modradarr",
+  "post": {
+    "dir": "dist/client",
+    "entrypoints": {
+      "default": {
+        "entry": "index.html",
+        "height": "tall"
+      }
+    }
+  },
+  "server": {
+    "dir": "dist/server",
+    "entry": "index.cjs"
+  },
+  "menu": {
+    "items": [
+      {
+        "label": "Mop comments",
+        "description": "Remove this comment and all child comments. This might take a few seconds to run.",
+        "location": "comment",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/mop-comment"
+      },
+      {
+        "label": "Mop post comments",
+        "description": "Remove all comments of this post. This might take a few seconds to run.",
+        "location": "post",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/mop-post"
+      },
+      {
+        "label": "ModRadar: recent edit alerts",
+        "description": "Show recent suspicious edit alerts from ModRadar.",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/modradar-alerts"
+      },
+      {
+        "label": "ModRadar: review lock",
+        "description": "Acquire or release a review lock so other mods know you're handling this.",
+        "location": "post",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/modradar-review-post"
+      },
+      {
+        "label": "ModRadar: review lock",
+        "description": "Acquire or release a review lock so other mods know you're handling this.",
+        "location": "comment",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/modradar-review-comment"
+      },
+      {
+        "label": "ModRadar: active review locks",
+        "description": "List items currently being reviewed by mods.",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/modradar-active-locks"
+      },
+      {
+        "label": "Open ModRadar Dashboard",
+        "description": "Create a dashboard post showing clusters and recent alerts.",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/modradar-open-dashboard"
+      },
+      {
+        "label": "ModRadar: settings",
+        "description": "Configure sensitivity, time windows, and module toggles.",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/modradar-settings"
+      }
+    ]
+  },
+  "forms": {
+    "mopComment": "/internal/form/mop-comment-submit",
+    "mopPost": "/internal/form/mop-post-submit",
+    "modradarSettings": "/internal/form/modradar-settings-submit"
+  },
+  "triggers": {
+    "onAppInstall": "/internal/triggers/on-app-install",
+    "onPostSubmit": "/internal/triggers/on-post-submit",
+    "onPostUpdate": "/internal/triggers/on-post-update",
+    "onPostDelete": "/internal/triggers/on-post-delete",
+    "onCommentSubmit": "/internal/triggers/on-comment-submit",
+    "onCommentUpdate": "/internal/triggers/on-comment-update",
+    "onCommentDelete": "/internal/triggers/on-comment-delete"
+  },
+  "scheduler": {
+    "tasks": {
+      "collisionCleanup": {
+        "endpoint": "/internal/scheduler/collision-cleanup",
+        "cron": "*/10 * * * *"
+      },
+      "clusterScan": {
+        "endpoint": "/internal/scheduler/cluster-scan",
+        "cron": "*/5 * * * *"
+      }
+    }
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch"
+  },
+  "permissions": {
+    "reddit": true,
+    "redis": true,
+    "realtime": true,
+    "http": {
+      "enable": true,
+      "domains": [
+        "safebrowsing.googleapis.com",
+        "bit.ly",
+        "tinyurl.com",
+        "t.co",
+        "ow.ly",
+        "goo.gl",
+        "is.gd",
+        "buff.ly",
+        "cutt.ly",
+        "shorturl.at",
+        "rebrand.ly",
+        "tiny.cc",
+        "lnkd.in",
+        "rb.gy",
+        "trib.al",
+        "s.id",
+        "youtu.be"
+      ]
+    }
+  },
+  "settings": {
+    "global": {
+      "safeBrowsingApiKey": {
+        "type": "string",
+        "label": "Google Safe Browsing API key",
+        "defaultValue": "",
+        "isSecret": true
+      }
+    }
+  }
+}

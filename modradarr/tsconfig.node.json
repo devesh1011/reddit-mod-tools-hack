@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "outDir": "dist/types/node",
+    "tsBuildInfoFile": "dist/types/node/tsconfig.tsbuildinfo"
+  },
+  "include": [
+    "src/index.ts",
+    "src/core/**/*",
+    "src/routes/**/*",
+    "vite.config.ts"
+  ]
+}

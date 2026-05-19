@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": [],
+    "customConditions": ["browser"],
+    "outDir": "dist/types/browser",
+    "tsBuildInfoFile": "dist/types/browser/tsconfig.tsbuildinfo"
+  },
+  "include": ["src/client/**/*"]
+}

@@ -22,8 +22,11 @@
     "@devvit/start": "0.12.24",
     "@devvit/web": "0.12.24",
     "@hono/node-server": "^2.0.3",
+    "@langchain/anthropic": "^1.4.0",
+    "@langchain/core": "^1.1.48",
     "devvit": "0.12.24",
-    "hono": "4.12.21"
+    "hono": "4.12.21",
+    "langchain": "^1.4.2"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

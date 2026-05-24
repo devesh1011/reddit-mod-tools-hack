@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ModRadar Dashboard</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="root">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo">⌖</span>
+          <h1>ModRadar</h1>
+        </div>
+        <div class="state" id="state">loading…</div>
+        <div class="actions">
+          <button id="refresh-btn" class="btn">Refresh</button>
+          <button id="scan-btn" class="btn primary">Scan now</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Active review locks</h2>
+            <span class="hint" id="locks-status">live · waiting…</span>
+          </div>
+          <div id="locks" class="lock-list">
+            <div class="empty">No active locks.</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Clusters</h2>
+            <span class="hint">ranked by risk · highest first</span>
+          </div>
+          <div id="clusters" class="cluster-list">
+            <div class="empty">No clusters yet — run a scan or wait for the next 5 min tick.</div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Recent edit alerts</h2>
+            <span class="hint">last 15</span>
+          </div>
+          <div id="alerts" class="alert-list">
+            <div class="empty">No edit alerts yet.</div>
+          </div>
+        </section>
+      </main>
+
+      <div id="toast" class="toast hidden"></div>
+    </div>
+    <script type="module" src="./dashboard.ts"></script>
+  </body>
+</html>

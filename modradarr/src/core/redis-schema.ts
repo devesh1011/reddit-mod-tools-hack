@@ -23,6 +23,13 @@ export type EditEvent = {
   diffPreview: string;
 };
 
+export type AgentVerdict = {
+  verdict: 'spam' | 'legit' | 'unclear';
+  confidence: number;
+  reasons: string[];
+  suggestedAction: 'remove' | 'flag' | 'ignore';
+};
+
 export type Alert = {
   thingId: string;
   type: 'post' | 'comment';
@@ -33,13 +40,21 @@ export type Alert = {
   riskScore: number;
   detectedAt: string;
   removed: boolean;
+  heuristicScore?: number;
+  agentVerdict?: AgentVerdict;
 };
+
+export type NotificationLevel = 'off' | 'digest' | 'realtime';
+export type AgentMode = 'off' | 'borderline' | 'always';
 
 export type Settings = {
   editWindowHours: number;
   minDomainRiskScore: number;
   autoRemoveThreshold: number;
   clusterMinGroupSize: number;
+  clusterScanIntervalMin: number;
+  notificationLevel: NotificationLevel;
+  agentMode: AgentMode;
   editRadarEnabled: boolean;
   collisionShieldEnabled: boolean;
   clusterRadarEnabled: boolean;
@@ -50,10 +65,23 @@ export const DEFAULT_SETTINGS: Settings = {
   minDomainRiskScore: 0.5,
   autoRemoveThreshold: 0,
   clusterMinGroupSize: 3,
+  clusterScanIntervalMin: 5,
+  notificationLevel: 'realtime',
+  agentMode: 'borderline',
   editRadarEnabled: true,
   collisionShieldEnabled: true,
   clusterRadarEnabled: true,
 };
+
+function parseNotificationLevel(input: string | undefined): NotificationLevel {
+  if (input === 'off' || input === 'digest' || input === 'realtime') return input;
+  return DEFAULT_SETTINGS.notificationLevel;
+}
+
+function parseAgentMode(input: string | undefined): AgentMode {
+  if (input === 'off' || input === 'borderline' || input === 'always') return input;
+  return DEFAULT_SETTINGS.agentMode;
+}
 
 const requireSubredditId = (): string => {
   const id = context.subredditId;
@@ -166,6 +194,12 @@ export async function readSettings(): Promise<Settings> {
     minDomainRiskScore: numOr(raw.minDomainRiskScore, DEFAULT_SETTINGS.minDomainRiskScore),
     autoRemoveThreshold: numOr(raw.autoRemoveThreshold, DEFAULT_SETTINGS.autoRemoveThreshold),
     clusterMinGroupSize: numOr(raw.clusterMinGroupSize, DEFAULT_SETTINGS.clusterMinGroupSize),
+    clusterScanIntervalMin: numOr(
+      raw.clusterScanIntervalMin,
+      DEFAULT_SETTINGS.clusterScanIntervalMin
+    ),
+    notificationLevel: parseNotificationLevel(raw.notificationLevel),
+    agentMode: parseAgentMode(raw.agentMode),
     editRadarEnabled: raw.editRadarEnabled !== 'false',
     collisionShieldEnabled: raw.collisionShieldEnabled !== 'false',
     clusterRadarEnabled: raw.clusterRadarEnabled !== 'false',
@@ -184,10 +218,46 @@ export async function writeSettings(settings: Settings): Promise<void> {
     minDomainRiskScore: String(settings.minDomainRiskScore),
     autoRemoveThreshold: String(settings.autoRemoveThreshold),
     clusterMinGroupSize: String(settings.clusterMinGroupSize),
+    clusterScanIntervalMin: String(settings.clusterScanIntervalMin),
+    notificationLevel: settings.notificationLevel,
+    agentMode: settings.agentMode,
     editRadarEnabled: String(settings.editRadarEnabled),
     collisionShieldEnabled: String(settings.collisionShieldEnabled),
     clusterRadarEnabled: String(settings.clusterRadarEnabled),
   });
+}
+
+const REPORT_TTL_SECONDS = 24 * 60 * 60;
+
+export async function bumpReportSignal(thingId: string, numReports: number): Promise<void> {
+  const subredditId = requireSubredditId();
+  const key = `${ns(subredditId)}:reports:${thingId}`;
+  await redis.hSet(key, {
+    count: String(Math.max(numReports, 1)),
+    lastSeen: new Date().toISOString(),
+  });
+  await redis.expire(key, REPORT_TTL_SECONDS);
+}
+
+export async function readReportSignal(thingId: string): Promise<number> {
+  const subredditId = requireSubredditId();
+  const raw = await redis.hGet(`${ns(subredditId)}:reports:${thingId}`, 'count');
+  if (!raw) return 0;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export async function readLatestEditLog(thingId: string): Promise<EditEvent | null> {
+  const subredditId = requireSubredditId();
+  const key = `${ns(subredditId)}:editlog:${thingId}`;
+  const members = await redis.zRange(key, 0, 0, { reverse: true, by: 'rank' });
+  const raw = members[0]?.member;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as EditEvent;
+  } catch {
+    return null;
+  }
 }
 
 export async function recentAlertIds(limit = 25): Promise<string[]> {
@@ -312,4 +382,84 @@ function numOr(input: string | undefined, fallback: number): number {
   if (input === undefined) return fallback;
   const n = Number.parseFloat(input);
   return Number.isFinite(n) ? n : fallback;
+}
+
+const AGENT_CACHE_EDIT_TTL_SECONDS = 60 * 60;
+const AGENT_CACHE_CLUSTER_TTL_SECONDS = 30 * 60;
+const AGENT_BUDGET_TTL_SECONDS = 24 * 60 * 60;
+
+function utcDayKey(): string {
+  return new Date().toISOString().slice(0, 10).replace(/-/g, '');
+}
+
+export async function getCachedAdjudication<T>(hash: string): Promise<T | null> {
+  const subredditId = requireSubredditId();
+  const raw = await redis.get(`mr:cache:agent:edit:${subredditId}:${hash}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function setCachedAdjudication<T>(hash: string, value: T): Promise<void> {
+  const subredditId = requireSubredditId();
+  const key = `mr:cache:agent:edit:${subredditId}:${hash}`;
+  await redis.set(key, JSON.stringify(value));
+  await redis.expire(key, AGENT_CACHE_EDIT_TTL_SECONDS);
+}
+
+export async function getCachedNarration<T>(clusterId: string): Promise<T | null> {
+  const subredditId = requireSubredditId();
+  const raw = await redis.get(`mr:cache:agent:cluster:${subredditId}:${clusterId}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function setCachedNarration<T>(clusterId: string, value: T): Promise<void> {
+  const subredditId = requireSubredditId();
+  const key = `mr:cache:agent:cluster:${subredditId}:${clusterId}`;
+  await redis.set(key, JSON.stringify(value));
+  await redis.expire(key, AGENT_CACHE_CLUSTER_TTL_SECONDS);
+}
+
+export async function getAgentBudget(): Promise<number> {
+  const subredditId = requireSubredditId();
+  const raw = await redis.get(`${ns(subredditId)}:agent:budget:${utcDayKey()}`);
+  if (!raw) return 0;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export async function bumpAgentBudget(): Promise<number> {
+  const subredditId = requireSubredditId();
+  const key = `${ns(subredditId)}:agent:budget:${utcDayKey()}`;
+  const next = await redis.incrBy(key, 1);
+  await redis.expire(key, AGENT_BUDGET_TTL_SECONDS);
+  return next;
+}
+
+const CLUSTER_NARRATION_TTL_SECONDS = 24 * 60 * 60;
+
+export async function writeClusterNarration<T>(clusterId: string, value: T): Promise<void> {
+  const subredditId = requireSubredditId();
+  const key = `${ns(subredditId)}:cluster:${clusterId}:narration`;
+  await redis.set(key, JSON.stringify(value));
+  await redis.expire(key, CLUSTER_NARRATION_TTL_SECONDS);
+}
+
+export async function readClusterNarration<T>(clusterId: string): Promise<T | null> {
+  const subredditId = requireSubredditId();
+  const raw = await redis.get(`${ns(subredditId)}:cluster:${clusterId}:narration`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
 }

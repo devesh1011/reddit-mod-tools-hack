@@ -1,0 +1,16 @@
+# ### Operating System Files ###
+.DS_Store          # macOS specific
+Thumbs.db          # Windows specific
+desktop.ini        # Windows specific
+
+# ### Environment & Secrets ###
+.env               # Local environment variables (IMPORTANT: DO NOT TRACK)
+*.log              # Application logs
+*.tmp              # Temporary files
+
+# ### Common Build & IDE Folders ###
+node_modules/      # Node.js dependencies
+__pycache__/       # Python compiled files
+dist/              # Distribution/Build folders
+.vscode/           # VS Code settings
+.idea/             # IntelliJ/JetBrains settings

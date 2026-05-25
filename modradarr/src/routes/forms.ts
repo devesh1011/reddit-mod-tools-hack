@@ -3,7 +3,13 @@ import type { UiResponse } from '@devvit/web/shared';
 import { context } from '@devvit/web/server';
 import { isT1, isT3 } from '@devvit/shared-types/tid.js';
 import { handleNuke, handleNukePost } from '../core/nuke';
-import { readSettings, writeSettings, type Settings } from '../core/redis-schema';
+import {
+  readSettings,
+  writeSettings,
+  type AgentMode,
+  type NotificationLevel,
+  type Settings,
+} from '../core/redis-schema';
 
 type NukeFormValues = {
   remove?: boolean;
@@ -76,10 +82,36 @@ type SettingsFormValues = {
   minDomainRiskScore?: number | string;
   autoRemoveThreshold?: number | string;
   clusterMinGroupSize?: number | string;
+  clusterScanIntervalMin?: number | string;
+  notificationLevel?: NotificationLevel | string | (NotificationLevel | string)[];
+  agentMode?: AgentMode | string | (AgentMode | string)[];
   editRadarEnabled?: boolean;
   collisionShieldEnabled?: boolean;
   clusterRadarEnabled?: boolean;
 };
+
+function firstString(input: unknown): string | undefined {
+  if (Array.isArray(input)) return typeof input[0] === 'string' ? input[0] : undefined;
+  return typeof input === 'string' ? input : undefined;
+}
+
+function parseLevel(
+  input: NotificationLevel | string | (NotificationLevel | string)[] | undefined,
+  fallback: NotificationLevel
+): NotificationLevel {
+  const v = firstString(input);
+  if (v === 'off' || v === 'digest' || v === 'realtime') return v;
+  return fallback;
+}
+
+function parseMode(
+  input: AgentMode | string | (AgentMode | string)[] | undefined,
+  fallback: AgentMode
+): AgentMode {
+  const v = firstString(input);
+  if (v === 'off' || v === 'borderline' || v === 'always') return v;
+  return fallback;
+}
 
 function clamp(value: number, min: number, max: number): number {
   if (Number.isNaN(value)) return min;
@@ -109,6 +141,13 @@ forms.post('/modradar-settings-submit', async (c) => {
       2,
       20
     ),
+    clusterScanIntervalMin: clamp(
+      Math.round(asNumber(values.clusterScanIntervalMin, current.clusterScanIntervalMin)),
+      1,
+      60
+    ),
+    notificationLevel: parseLevel(values.notificationLevel, current.notificationLevel),
+    agentMode: parseMode(values.agentMode, current.agentMode),
     editRadarEnabled: values.editRadarEnabled ?? current.editRadarEnabled,
     collisionShieldEnabled: values.collisionShieldEnabled ?? current.collisionShieldEnabled,
     clusterRadarEnabled: values.clusterRadarEnabled ?? current.clusterRadarEnabled,

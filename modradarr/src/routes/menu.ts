@@ -197,6 +197,37 @@ menu.post('/modradar-settings', async (c) => {
               defaultValue: settings.clusterMinGroupSize,
             },
             {
+              name: 'clusterScanIntervalMin',
+              label: 'Cluster scan interval (minutes)',
+              helpText: 'Skip cron-triggered scans if last scan finished within this window.',
+              type: 'number',
+              defaultValue: settings.clusterScanIntervalMin,
+            },
+            {
+              name: 'notificationLevel',
+              label: 'Notifications (off / digest / realtime)',
+              helpText: 'off = no alerts stored, digest = stored only, realtime = stored + dashboard push.',
+              type: 'select',
+              defaultValue: [settings.notificationLevel],
+              options: [
+                { label: 'off', value: 'off' },
+                { label: 'digest', value: 'digest' },
+                { label: 'realtime', value: 'realtime' },
+              ],
+            },
+            {
+              name: 'agentMode',
+              label: 'LLM agent mode (off / borderline / always)',
+              helpText: 'off = heuristic only. borderline = adjudicate scores in [0.3, 0.7]. always = call on every alert. Requires Anthropic API key.',
+              type: 'select',
+              defaultValue: [settings.agentMode],
+              options: [
+                { label: 'off', value: 'off' },
+                { label: 'borderline', value: 'borderline' },
+                { label: 'always', value: 'always' },
+              ],
+            },
+            {
               name: 'editRadarEnabled',
               label: 'Edit Radar enabled',
               type: 'boolean',

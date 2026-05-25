@@ -2,15 +2,17 @@ import { Hono } from 'hono';
 import type {
   OnAppInstallRequest,
   OnCommentDeleteRequest,
+  OnCommentReportRequest,
   OnCommentSubmitRequest,
   OnCommentUpdateRequest,
   OnPostDeleteRequest,
+  OnPostReportRequest,
   OnPostSubmitRequest,
   OnPostUpdateRequest,
   TriggerResponse,
 } from '@devvit/web/shared';
 import { handleDelete, handleSubmit, handleUpdate } from '../core/edit-radar';
-import { writeDefaultSettings } from '../core/redis-schema';
+import { bumpReportSignal, recordRecent, writeDefaultSettings } from '../core/redis-schema';
 
 export const triggers = new Hono();
 
@@ -110,6 +112,30 @@ triggers.post('/on-post-delete', async (c) => {
 triggers.post('/on-comment-delete', async (c) => {
   const input = await c.req.json<OnCommentDeleteRequest>();
   if (input.commentId) await handleDelete(input.commentId);
+  return c.json<TriggerResponse>({ status: 'success' }, 200);
+});
+
+triggers.post('/on-post-report', async (c) => {
+  const input = await c.req.json<OnPostReportRequest>();
+  const post = input.post;
+  if (!post?.id) return c.json<TriggerResponse>({ status: 'success' }, 200);
+  const count = typeof post.numReports === 'number' && post.numReports > 0 ? post.numReports : 1;
+  await bumpReportSignal(post.id, count);
+  const createdAt = post.createdAt ? new Date(post.createdAt).toISOString() : new Date().toISOString();
+  await recordRecent(post.id, createdAt);
+  console.log(`[modradar] post report ${post.id} reason="${input.reason ?? ''}" numReports=${count}`);
+  return c.json<TriggerResponse>({ status: 'success' }, 200);
+});
+
+triggers.post('/on-comment-report', async (c) => {
+  const input = await c.req.json<OnCommentReportRequest>();
+  const comment = input.comment;
+  if (!comment?.id) return c.json<TriggerResponse>({ status: 'success' }, 200);
+  const count = typeof comment.numReports === 'number' && comment.numReports > 0 ? comment.numReports : 1;
+  await bumpReportSignal(comment.id, count);
+  const createdAt = comment.createdAt ? new Date(comment.createdAt).toISOString() : new Date().toISOString();
+  await recordRecent(comment.id, createdAt);
+  console.log(`[modradar] comment report ${comment.id} reason="${input.reason ?? ''}" numReports=${count}`);
   return c.json<TriggerResponse>({ status: 'success' }, 200);
 });
 

@@ -13,11 +13,14 @@ import {
   listClusterIds,
   readAlert,
   readCluster,
+  readClusterNarration,
   readClusterState,
+  readLatestEditLog,
   readSettings,
   recentAlertIds,
   removeCluster,
 } from '../core/redis-schema';
+import type { NarrateClusterOutput } from '../core/agent';
 
 export const api = new Hono();
 
@@ -119,6 +122,15 @@ api.get('/dashboard-data', async (c) => {
   const clusters = (
     await Promise.all(clusterIds.map((id) => readCluster(id)))
   ).filter((c): c is NonNullable<typeof c> => c !== null);
+  const narrations = await Promise.all(
+    clusters.map(async (cl) => {
+      const n = await readClusterNarration<NarrateClusterOutput>(cl.id);
+      return n ? { clusterId: cl.id, ...n } : null;
+    })
+  );
+  const clusterNarrations = narrations.filter(
+    (n): n is NonNullable<typeof n> => n !== null
+  );
   const alerts = (
     await Promise.all(alertIds.map((id) => readAlert(id)))
   ).filter((a): a is NonNullable<typeof a> => a !== null);
@@ -128,7 +140,7 @@ api.get('/dashboard-data', async (c) => {
         alerts: alertsChannel(subredditId),
       }
     : null;
-  return c.json({ state, clusters, alerts, locks, channels }, 200);
+  return c.json({ state, clusters, clusterNarrations, alerts, locks, channels }, 200);
 });
 
 api.post('/cluster-scan-now', async (c) => {
@@ -142,6 +154,14 @@ api.post('/cluster-scan-now', async (c) => {
 api.get('/settings', async (c) => {
   const settings = await readSettings();
   return c.json(settings, 200);
+});
+
+api.get('/edit-log', async (c) => {
+  const thingId = c.req.query('thingId');
+  if (!thingId) return c.json({ error: 'thingId required' }, 400);
+  const event = await readLatestEditLog(thingId);
+  if (!event) return c.json({ event: null }, 200);
+  return c.json({ event }, 200);
 });
 
 api.get('/me', async (c) => {

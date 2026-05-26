@@ -1,4 +1,4 @@
-import { reddit } from '@devvit/web/server';
+import { context, realtime, reddit } from '@devvit/web/server';
 import {
   appendEditLog,
   deleteSnapshot,
@@ -11,6 +11,7 @@ import {
   type Alert,
   type Snapshot,
 } from './redis-schema';
+import { alertsChannel } from './cluster-radar';
 import {
   diffPreview,
   diffUrls,
@@ -19,6 +20,7 @@ import {
   isWithinEditWindow,
 } from './diff-engine';
 import { maxScore, recordReportedDomains, scoreUrls, type UrlScore } from './url-scorer';
+import { adjudicateEdit } from './agent';
 
 type ThingType = 'post' | 'comment';
 
@@ -117,13 +119,43 @@ export async function handleUpdate(payload: TriggerPayload): Promise<void> {
   if (urlDiff.added.length === 0) return;
 
   const scores = await scoreUrls(urlDiff.added);
-  const top = maxScore(scores);
-  if (top < settings.minDomainRiskScore) {
+  const heuristicTop = maxScore(scores);
+  if (heuristicTop < settings.minDomainRiskScore) {
     return;
   }
 
   await recordReportedDomains(scores.map((s) => s.domain));
 
+  let effectiveScore = heuristicTop;
+  let agentVerdict: Awaited<ReturnType<typeof adjudicateEdit>> = null;
+  try {
+    agentVerdict = await adjudicateEdit({
+      bodyBefore: prior.body,
+      bodyAfter: body,
+      addedUrls: urlDiff.added,
+      authorAgeDays: null,
+      heuristicScore: heuristicTop,
+      heuristicSignals: collectSignalTags(scores),
+    });
+  } catch (err) {
+    console.error('[modradar] adjudicateEdit threw unexpectedly', err);
+  }
+  if (agentVerdict) {
+    if (agentVerdict.verdict === 'legit' && agentVerdict.confidence >= 0.7) {
+      effectiveScore = Math.min(effectiveScore, 0.29);
+    } else if (agentVerdict.verdict === 'spam' && agentVerdict.confidence >= 0.7) {
+      effectiveScore = Math.max(effectiveScore, 0.7);
+    }
+  }
+
+  if (effectiveScore < settings.minDomainRiskScore) {
+    console.log(
+      `[modradar] edit alert suppressed by agent (legit) ${payload.type} ${payload.thingId} heuristic=${heuristicTop.toFixed(2)}`
+    );
+    return;
+  }
+
+  const top = effectiveScore;
   const shouldRemove =
     settings.autoRemoveThreshold > 0 && top >= settings.autoRemoveThreshold;
 
@@ -141,6 +173,13 @@ export async function handleUpdate(payload: TriggerPayload): Promise<void> {
     }
   }
 
+  if (settings.notificationLevel === 'off') {
+    console.log(
+      `[modradar] edit signal suppressed (notificationLevel=off) ${payload.type} ${payload.thingId} score=${top.toFixed(2)}`
+    );
+    return;
+  }
+
   const alert: Alert = {
     thingId: payload.thingId,
     type: payload.type,
@@ -151,8 +190,26 @@ export async function handleUpdate(payload: TriggerPayload): Promise<void> {
     riskScore: top,
     detectedAt: new Date().toISOString(),
     removed,
+    heuristicScore: heuristicTop,
+    ...(agentVerdict ? { agentVerdict } : {}),
   };
   await storeAlert(alert);
+
+  if (settings.notificationLevel === 'realtime') {
+    const subredditId = context.subredditId;
+    if (subredditId) {
+      try {
+        await realtime.send(alertsChannel(subredditId), {
+          type: 'edit-alert',
+          thingId: alert.thingId,
+          riskScore: alert.riskScore,
+          detectedAt: alert.detectedAt,
+        });
+      } catch (err) {
+        console.error('[modradar] edit alert broadcast failed', err);
+      }
+    }
+  }
 
   console.log(
     `[modradar] edit alert ${payload.type} ${payload.thingId} score=${top.toFixed(2)} added=${urlDiff.added.length} removed=${removed} signals=${signalSummary(scores)}`
@@ -206,4 +263,12 @@ function signalSummary(scores: UrlScore[]): string {
   return scores
     .map((s) => `${s.domain}(${s.score.toFixed(2)}|${s.signals.join(',')})`)
     .join(';');
+}
+
+function collectSignalTags(scores: UrlScore[]): string[] {
+  const tags = new Set<string>();
+  for (const s of scores) {
+    for (const sig of s.signals) tags.add(sig);
+  }
+  return Array.from(tags).slice(0, 12);
 }

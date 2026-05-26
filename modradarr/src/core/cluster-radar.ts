@@ -1,13 +1,16 @@
 import { context, realtime, reddit } from '@devvit/web/server';
 import {
   readAlert,
+  readReportSignal,
   readSnapshot,
   recentAlertIds,
   recentThingIds,
+  writeClusterNarration,
   writeClusters,
   type StoredCluster,
 } from './redis-schema';
 import { clusterItems, type Cluster, type ModqueueItem } from './clustering';
+import { narrateCluster, type NarrateClusterOutput } from './agent';
 
 const SCAN_WINDOW_HOURS = 24;
 const ITEM_LIMIT = 500;
@@ -50,6 +53,10 @@ export async function runClusterScan(): Promise<{
     const snapshot = await readSnapshot(thingId);
     if (!snapshot) continue;
     const type: ModqueueItem['type'] = thingId.startsWith('t3_') ? 'post' : 'comment';
+    const reportCount = await readReportSignal(thingId);
+    const reportHint = reportCount > 0 ? Math.min(1, 0.3 + 0.15 * reportCount) : 0;
+    const alertHint = alertScores.get(thingId) ?? 0;
+    const hint = Math.max(reportHint, alertHint);
     items.push({
       thingId,
       type,
@@ -59,7 +66,7 @@ export async function runClusterScan(): Promise<{
       urls: snapshot.urls,
       createdAt: snapshot.createdAt,
       bodyPreview: snapshot.body.slice(0, 200),
-      ...(alertScores.has(thingId) ? { riskHint: alertScores.get(thingId)! } : {}),
+      ...(hint > 0 ? { riskHint: hint } : {}),
     });
   }
 
@@ -67,6 +74,7 @@ export async function runClusterScan(): Promise<{
   await enrichClusterItems(clusters);
   const stored = clusters.map(toStored);
   await writeClusters(stored);
+  await narrateHighRiskClusters(clusters, stored);
   await broadcastAlert({
     type: 'cluster-scan',
     clusters: clusters.length,
@@ -74,6 +82,36 @@ export async function runClusterScan(): Promise<{
     at: new Date().toISOString(),
   });
   return { scanned: items.length, clusters: clusters.length };
+}
+
+const NARRATION_RISK_THRESHOLD = 0.4;
+const MAX_NARRATIONS_PER_SCAN = 4;
+
+async function narrateHighRiskClusters(
+  clusters: Cluster[],
+  stored: StoredCluster[]
+): Promise<void> {
+  let calls = 0;
+  for (let i = 0; i < stored.length && calls < MAX_NARRATIONS_PER_SCAN; i++) {
+    const s = stored[i];
+    const c = clusters[i];
+    if (!s || !c || s.riskScore < NARRATION_RISK_THRESHOLD) continue;
+    const previews = c.items.slice(0, 10).map((item) => ({
+      thingId: item.thingId,
+      bodyPreview: item.bodyPreview,
+      urls: item.urls,
+    }));
+    let result: NarrateClusterOutput | null = null;
+    try {
+      result = await narrateCluster(s, previews);
+    } catch (err) {
+      console.error('[modradar] narrateCluster threw unexpectedly', err);
+    }
+    if (result) {
+      await writeClusterNarration(s.id, result);
+      calls++;
+    }
+  }
 }
 
 async function enrichClusterItems(clusters: Cluster[]): Promise<void> {

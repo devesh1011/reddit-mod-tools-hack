@@ -14,3 +14,5 @@ __pycache__/       # Python compiled files
 dist/              # Distribution/Build folders
 .vscode/           # VS Code settings
 .idea/             # IntelliJ/JetBrains settings
+graphify-out
+.claude

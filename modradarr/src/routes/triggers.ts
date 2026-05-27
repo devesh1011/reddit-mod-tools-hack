@@ -31,7 +31,7 @@ triggers.post('/on-post-submit', async (c) => {
   const input = await c.req.json<OnPostSubmitRequest>();
   const post = input.post;
   const author = input.author;
-  if (!post?.id) return c.json<TriggerResponse>({ status: 'success' }, 200);
+	  if (!post?.id) return c.json<TriggerResponse>({ status: 'success' }, 200);
 
   await handleSubmit({
     type: 'post',
@@ -69,7 +69,7 @@ triggers.post('/on-post-update', async (c) => {
   const input = await c.req.json<OnPostUpdateRequest>();
   const post = input.post;
   const author = input.author;
-  if (!post?.id) return c.json<TriggerResponse>({ status: 'success' }, 200);
+	  if (!post?.id) return c.json<TriggerResponse>({ status: 'success' }, 200);
 
   await handleUpdate({
     type: 'post',
@@ -118,7 +118,7 @@ triggers.post('/on-comment-delete', async (c) => {
 triggers.post('/on-post-report', async (c) => {
   const input = await c.req.json<OnPostReportRequest>();
   const post = input.post;
-  if (!post?.id) return c.json<TriggerResponse>({ status: 'success' }, 200);
+	  if (!post?.id) return c.json<TriggerResponse>({ status: 'success' }, 200);
   const count = typeof post.numReports === 'number' && post.numReports > 0 ? post.numReports : 1;
   await bumpReportSignal(post.id, count);
   const createdAt = post.createdAt ? new Date(post.createdAt).toISOString() : new Date().toISOString();

@@ -177,17 +177,17 @@ menu.post('/modradar-settings', async (c) => {
             },
             {
               name: 'minDomainRiskScore',
-              label: 'Min risk score to alert (0.0–1.0)',
+              label: 'Min risk score to alert (e.g. 0.5)',
               helpText: 'URLs scored at or above this threshold create an alert.',
-              type: 'number',
-              defaultValue: settings.minDomainRiskScore,
+              type: 'string',
+              defaultValue: String(settings.minDomainRiskScore),
             },
             {
               name: 'autoRemoveThreshold',
               label: 'Auto-remove threshold (0 = disabled)',
               helpText: 'Score at or above this auto-removes the item as spam.',
-              type: 'number',
-              defaultValue: settings.autoRemoveThreshold,
+              type: 'string',
+              defaultValue: String(settings.autoRemoveThreshold),
             },
             {
               name: 'clusterMinGroupSize',

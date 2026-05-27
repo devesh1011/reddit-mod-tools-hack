@@ -1,4 +1,5 @@
 import { connectRealtime } from '@devvit/web/client';
+import { fetchEditLog, renderDiffViewer } from './components/diff-viewer';
 
 type StoredCluster = {
   id: string;
@@ -10,6 +11,13 @@ type StoredCluster = {
   itemIds: string[];
 };
 
+type AgentVerdict = {
+  verdict: 'spam' | 'legit' | 'unclear';
+  confidence: number;
+  reasons: string[];
+  suggestedAction: 'remove' | 'flag' | 'ignore';
+};
+
 type Alert = {
   thingId: string;
   type: 'post' | 'comment';
@@ -19,6 +27,8 @@ type Alert = {
   riskScore: number;
   detectedAt: string;
   removed: boolean;
+  heuristicScore?: number;
+  agentVerdict?: AgentVerdict;
 };
 
 type ReviewLock = {
@@ -32,9 +42,18 @@ type DashboardChannels = {
   alerts: string;
 } | null;
 
+type ClusterNarration = {
+  clusterId: string;
+  narrative: string;
+  campaignType: string;
+  recommendedAction: 'remove_all' | 'review_individually' | 'dismiss';
+  riskAdjustment: number;
+};
+
 type DashboardData = {
   state: { lastScanAt: string | null; count: number };
   clusters: StoredCluster[];
+  clusterNarrations?: ClusterNarration[];
   alerts: Alert[];
   locks: ReviewLock[];
   channels: DashboardChannels;
@@ -47,7 +66,8 @@ type ReviewingEvent =
 
 type AlertEvent =
   | { type: 'cluster-scan'; clusters: number; scanned: number; at: string }
-  | { type: 'bulk-action-complete'; clusterId: string; action: string; affected: number };
+  | { type: 'bulk-action-complete'; clusterId: string; action: string; affected: number }
+  | { type: 'edit-alert'; thingId: string; riskScore: number; detectedAt: string };
 
 const stateEl = document.getElementById('state')!;
 const clustersEl = document.getElementById('clusters')!;
@@ -113,6 +133,8 @@ function escapeHtml(s: string): string {
   });
 }
 
+let lastNarrationsById = new Map<string, ClusterNarration>();
+
 function renderClusters(clusters: StoredCluster[]): void {
   if (clusters.length === 0) {
     clustersEl.innerHTML =
@@ -125,6 +147,14 @@ function renderClusters(clusters: StoredCluster[]): void {
     const node = document.createElement('div');
     node.className = 'cluster';
     node.dataset.clusterId = c.id;
+    const narration = lastNarrationsById.get(c.id);
+    const narrativeBlock = narration
+      ? `<div class="cluster-narrative">
+           <span class="campaign-tag">${escapeHtml(narration.campaignType.replace(/_/g, ' '))}</span>
+           ${escapeHtml(narration.narrative)}
+           <div class="recommended">recommend: ${escapeHtml(narration.recommendedAction.replace(/_/g, ' '))}</div>
+         </div>`
+      : '';
     node.innerHTML = `
       <div class="risk-badge ${bucket.className}">
         <span class="num">${c.riskScore.toFixed(2)}</span>
@@ -137,6 +167,7 @@ function renderClusters(clusters: StoredCluster[]): void {
           <span class="hint">· ${formatRelative(c.detectedAt)}</span>
         </div>
         <div class="cluster-summary">${escapeHtml(c.summary)}</div>
+        ${narrativeBlock}
         <div class="cluster-items">
           ${c.itemIds
             .slice(0, 8)
@@ -170,16 +201,63 @@ function renderAlerts(alerts: Alert[]): void {
       : `https://www.reddit.com/${encodeURI(a.thingId)}`;
     const node = document.createElement('div');
     node.className = 'alert';
+    node.dataset.thingId = a.thingId;
+    const verdictBadge = a.agentVerdict
+      ? `<span class="agent-badge ${a.agentVerdict.verdict}" title="agent confidence ${a.agentVerdict.confidence.toFixed(2)}">${a.agentVerdict.verdict}</span>`
+      : '';
+    const verdictReasons = a.agentVerdict && a.agentVerdict.reasons.length > 0
+      ? `<div class="agent-reasons">${a.agentVerdict.reasons.map((r) => `<span>${escapeHtml(r)}</span>`).join('')}</div>`
+      : '';
     node.innerHTML = `
-      <div class="score ${scoreClass}">${a.riskScore.toFixed(2)}</div>
-      <div class="alert-meta">
-        <a href="${link}" target="_blank" rel="noopener">${escapeHtml(a.thingId)}</a>
-        <span class="who">u/${escapeHtml(a.authorName)} · ${a.addedUrls.length} url${a.addedUrls.length === 1 ? '' : 's'} added · ${formatRelative(a.detectedAt)}</span>
+      <div class="alert-row">
+        <div class="score ${scoreClass}">${a.riskScore.toFixed(2)}</div>
+        <div class="alert-meta">
+          <a href="${link}" target="_blank" rel="noopener">${escapeHtml(a.thingId)}</a>
+          <span class="who">u/${escapeHtml(a.authorName)} · ${a.addedUrls.length} url${a.addedUrls.length === 1 ? '' : 's'} added · ${formatRelative(a.detectedAt)}</span>
+        </div>
+        ${verdictBadge}
+        ${a.removed ? '<span class="flag">removed</span>' : ''}
+        <button class="btn diff-toggle" data-action="toggle-diff" aria-expanded="false">View diff</button>
       </div>
-      ${a.removed ? '<span class="flag">removed</span>' : ''}
+      ${verdictReasons}
+      <div class="alert-diff hidden" aria-hidden="true"></div>
     `;
     alertsEl.appendChild(node);
   }
+}
+
+async function toggleDiff(alertNode: HTMLElement, button: HTMLButtonElement): Promise<void> {
+  const thingId = alertNode.dataset.thingId;
+  if (!thingId) return;
+  const panel = alertNode.querySelector('.alert-diff') as HTMLElement | null;
+  if (!panel) return;
+  const open = !panel.classList.contains('hidden');
+  if (open) {
+    panel.classList.add('hidden');
+    panel.setAttribute('aria-hidden', 'true');
+    button.textContent = 'View diff';
+    button.setAttribute('aria-expanded', 'false');
+    return;
+  }
+  if (!panel.dataset.loaded) {
+    panel.innerHTML = '<div class="hint">Loading diff…</div>';
+    try {
+      const event = await fetchEditLog(thingId);
+      if (!event) {
+        panel.innerHTML = '<div class="empty">No edit history stored for this item.</div>';
+      } else {
+        panel.innerHTML = renderDiffViewer(event);
+      }
+      panel.dataset.loaded = '1';
+    } catch (err) {
+      console.error('diff load failed', err);
+      panel.innerHTML = `<div class="empty">Failed to load diff: ${escapeHtml((err as Error).message)}</div>`;
+    }
+  }
+  panel.classList.remove('hidden');
+  panel.setAttribute('aria-hidden', 'false');
+  button.textContent = 'Hide diff';
+  button.setAttribute('aria-expanded', 'true');
 }
 
 function renderState(state: DashboardData['state']): void {
@@ -261,6 +339,9 @@ async function ensureSubscriptions(channels: DashboardChannels): Promise<void> {
             void loadDashboard();
           } else if (event.type === 'bulk-action-complete') {
             void loadDashboard();
+          } else if (event.type === 'edit-alert') {
+            showToast(`New edit alert · risk ${event.riskScore.toFixed(2)}`);
+            void loadDashboard();
           }
         },
       });
@@ -276,6 +357,9 @@ async function loadDashboard(): Promise<void> {
     const res = await fetch('/api/dashboard-data');
     if (!res.ok) throw new Error(`http ${res.status}`);
     const data = (await res.json()) as DashboardData;
+    lastNarrationsById = new Map(
+      (data.clusterNarrations ?? []).map((n) => [n.clusterId, n])
+    );
     renderState(data.state);
     renderClusters(data.clusters);
     renderAlerts(data.alerts);
@@ -375,6 +459,15 @@ async function heartbeatOwnedLocks(): Promise<void> {
     }
   }
 }
+
+alertsEl.addEventListener('click', (event) => {
+  const target = event.target as HTMLElement;
+  const button = target.closest('button[data-action="toggle-diff"]') as HTMLButtonElement | null;
+  if (!button) return;
+  const alertNode = button.closest('.alert') as HTMLElement | null;
+  if (!alertNode) return;
+  void toggleDiff(alertNode, button);
+});
 
 clustersEl.addEventListener('click', (event) => {
   const target = event.target as HTMLElement;

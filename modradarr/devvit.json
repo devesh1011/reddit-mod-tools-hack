@@ -1,6 +1,6 @@
 {
   "$schema": "https://developers.reddit.com/schema/config-file.v1.json",
-  "name": "modradarr",
+  "name": "modradarrr",
   "post": {
     "dir": "dist/client",
     "entrypoints": {
@@ -114,7 +114,6 @@
       "enable": true,
       "domains": [
         "safebrowsing.googleapis.com",
-        "api.anthropic.com",
         "bit.ly",
         "tinyurl.com",
         "t.co",
@@ -139,15 +138,16 @@
       "safeBrowsingApiKey": {
         "type": "string",
         "label": "Google Safe Browsing API key",
-        "defaultValue": "",
-        "isSecret": true
+        "defaultValue": ""
       },
-      "anthropicApiKey": {
+      "googleApiKey": {
         "type": "string",
-        "label": "Anthropic API key (Claude)",
-        "defaultValue": "",
-        "isSecret": true
+        "label": "Google AI API key (Gemini)",
+        "defaultValue": ""
       }
     }
+  },
+  "dev": {
+    "subreddit": "modradarrr_dev"
   }
 }

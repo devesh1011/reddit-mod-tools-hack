@@ -1,7 +1,7 @@
 {
   "private": true,
-  "name": "modradarr",
-  "version": "0.0.0",
+  "name": "modradarrr",
+  "version": "1.0.0",
   "license": "BSD-3-Clause",
   "type": "module",
   "scripts": {
@@ -23,7 +23,9 @@
     "@devvit/web": "0.12.24",
     "@hono/node-server": "^2.0.3",
     "@langchain/anthropic": "^1.4.0",
+    "@langchain/community": "^1.1.28",
     "@langchain/core": "^1.1.48",
+    "@langchain/google": "^0.1.12",
     "devvit": "0.12.24",
     "hono": "4.12.21",
     "langchain": "^1.4.2"

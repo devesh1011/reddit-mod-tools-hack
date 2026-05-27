@@ -1,36 +1,28 @@
 import { settings } from '@devvit/web/server';
-import { ChatAnthropic } from '@langchain/anthropic';
+import { ChatGoogle } from '@langchain/google/node';
 
-const AGENT_TIMEOUT_MS = 8_000;
-
-async function readAnthropicKey(): Promise<string | null> {
-  const raw = await settings.get<string>('anthropicApiKey').catch(() => undefined);
+async function readApiKey(): Promise<string | null> {
+  const raw = await settings.get<string>('googleApiKey').catch(() => undefined);
   if (!raw || typeof raw !== 'string' || raw.trim().length === 0) return null;
   return raw.trim();
 }
 
-export async function getEditAdjudicator(): Promise<ChatAnthropic | null> {
-  const apiKey = await readAnthropicKey();
+export async function getEditAdjudicator(): Promise<ChatGoogle | null> {
+  const apiKey = await readApiKey();
   if (!apiKey) return null;
-  return new ChatAnthropic({
+  return new ChatGoogle({
     apiKey,
-    model: 'claude-haiku-4-5-20251001',
-    temperature: 0,
-    maxTokens: 400,
+    model: 'gemini-3.5-flash',
     maxRetries: 1,
-    clientOptions: { timeout: AGENT_TIMEOUT_MS },
   });
 }
 
-export async function getClusterNarrator(): Promise<ChatAnthropic | null> {
-  const apiKey = await readAnthropicKey();
+export async function getClusterNarrator(): Promise<ChatGoogle | null> {
+  const apiKey = await readApiKey();
   if (!apiKey) return null;
-  return new ChatAnthropic({
+  return new ChatGoogle({
     apiKey,
-    model: 'claude-sonnet-4-6',
-    temperature: 0.2,
-    maxTokens: 600,
+    model: 'gemini-3.5-flash',
     maxRetries: 1,
-    clientOptions: { timeout: AGENT_TIMEOUT_MS },
   });
 }

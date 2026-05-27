@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { createAgent } from 'langchain';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { createHash } from 'node:crypto';
 import {
   bumpAgentBudget,
@@ -19,7 +19,6 @@ import {
   EDIT_ADJUDICATION_PROMPT,
   type NarrateClusterContext,
 } from './agent-prompts';
-import { timingMiddleware } from './agent-middleware';
 
 export const adjudicateEditOutput = z.object({
   verdict: z.enum(['spam', 'legit', 'unclear']),
@@ -90,20 +89,14 @@ export async function adjudicateEdit(
   }
 
   try {
-    const agent = createAgent({
-      model,
-      tools: [],
-      systemPrompt: EDIT_ADJUDICATION_PROMPT,
-      responseFormat: adjudicateEditOutput,
-      middleware: [timingMiddleware],
-    });
-    const result = (await agent.invoke({
-      messages: [{ role: 'user', content: buildAdjudicateUserMessage(input) }],
-    })) as { structuredResponse?: unknown };
-    const parsed = adjudicateEditOutput.parse(result.structuredResponse);
-    await setCachedAdjudication(hash, parsed);
+    const structured = model.withStructuredOutput(adjudicateEditOutput, { name: 'adjudicate_edit' });
+    const result = await structured.invoke([
+      new SystemMessage(EDIT_ADJUDICATION_PROMPT),
+      new HumanMessage(buildAdjudicateUserMessage(input)),
+    ]);
+    await setCachedAdjudication(hash, result);
     await bumpAgentBudget();
-    return parsed;
+    return result;
   } catch (err) {
     console.error('[modradar] adjudicateEdit failed', err);
     return null;
@@ -128,22 +121,14 @@ export async function narrateCluster(
   }
 
   try {
-    const agent = createAgent({
-      model,
-      tools: [],
-      systemPrompt: CLUSTER_NARRATION_PROMPT,
-      responseFormat: narrateClusterOutput,
-      middleware: [timingMiddleware],
-    });
-    const result = (await agent.invoke({
-      messages: [
-        { role: 'user', content: buildNarrateUserMessage({ cluster, itemPreviews }) },
-      ],
-    })) as { structuredResponse?: unknown };
-    const parsed = narrateClusterOutput.parse(result.structuredResponse);
-    await setCachedNarration(cluster.id, parsed);
+    const structured = model.withStructuredOutput(narrateClusterOutput, { name: 'narrate_cluster' });
+    const result = await structured.invoke([
+      new SystemMessage(CLUSTER_NARRATION_PROMPT),
+      new HumanMessage(buildNarrateUserMessage({ cluster, itemPreviews })),
+    ]);
+    await setCachedNarration(cluster.id, result);
     await bumpAgentBudget();
-    return parsed;
+    return result;
   } catch (err) {
     console.error('[modradar] narrateCluster failed', err);
     return null;

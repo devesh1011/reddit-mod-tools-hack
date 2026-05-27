@@ -53,15 +53,13 @@ export async function handleSubmit(payload: TriggerPayload): Promise<void> {
   await recordRecent(payload.thingId, createdAt);
 }
 
-export async function handleUpdate(payload: TriggerPayload): Promise<void> {
-  if (!payload.thingId) return;
+export async function handleUpdate(payload: TriggerPayload): Promise<void> {  if (!payload.thingId) {return; }
 
   const settings = await readSettings();
-  if (!settings.editRadarEnabled) return;
+  if (!settings.editRadarEnabled) {return; }
 
   const fresh = await fetchBody(payload.type, payload.thingId);
   const body = fresh?.body ?? payload.body;
-  if (!body) return;
   const authorName = fresh?.authorName ?? payload.authorName ?? '[deleted]';
   // '[deleted]' is Reddit's convention when the author account is removed; not a placeholder.
   const permalink = fresh?.permalink ?? payload.permalink ?? '';
@@ -69,8 +67,7 @@ export async function handleUpdate(payload: TriggerPayload): Promise<void> {
   const newHash = hashBody(body);
   const prior = await readSnapshot(payload.thingId);
 
-  if (!prior) {
-    if (!payload.authorId) return;
+  if (!prior) {if (!payload.authorId) return;
     const createdAt = payload.createdAt ?? new Date().toISOString();
     await writeSnapshot(payload.thingId, {
       body,
@@ -82,10 +79,9 @@ export async function handleUpdate(payload: TriggerPayload): Promise<void> {
     return;
   }
 
-  if (prior.bodyHash === newHash) return;
+  if (prior.bodyHash === newHash) {return; }
 
-  if (!isWithinEditWindow(prior.createdAt, settings.editWindowHours)) {
-    await writeSnapshot(payload.thingId, {
+  if (!isWithinEditWindow(prior.createdAt, settings.editWindowHours)) {await writeSnapshot(payload.thingId, {
       body,
       bodyHash: newHash,
       urls: extractUrls(body),
@@ -96,7 +92,7 @@ export async function handleUpdate(payload: TriggerPayload): Promise<void> {
   }
 
   const proceed = await markIdempotent(`edit:${payload.thingId}:${newHash}`);
-  if (!proceed) return;
+  if (!proceed) {return; }
 
   const newUrls = extractUrls(body);
   const urlDiff = diffUrls(prior.urls, newUrls);
@@ -116,12 +112,15 @@ export async function handleUpdate(payload: TriggerPayload): Promise<void> {
     authorId: prior.authorId,
   });
 
-  if (urlDiff.added.length === 0) return;
+  const nonRedditAdded = urlDiff.added.filter((u) => {
+    try { return !new URL(u).hostname.endsWith('.reddit.com') && new URL(u).hostname !== 'reddit.com'; } catch { return true; }
+  });
 
-  const scores = await scoreUrls(urlDiff.added);
+  if (nonRedditAdded.length === 0) {return; }
+
+  const scores = await scoreUrls(nonRedditAdded);
   const heuristicTop = maxScore(scores);
-  if (heuristicTop < settings.minDomainRiskScore) {
-    return;
+  if (heuristicTop < settings.minDomainRiskScore) {return;
   }
 
   await recordReportedDomains(scores.map((s) => s.domain));
@@ -186,7 +185,7 @@ export async function handleUpdate(payload: TriggerPayload): Promise<void> {
     authorId: prior.authorId,
     authorName,
     permalink,
-    addedUrls: urlDiff.added,
+    addedUrls: nonRedditAdded,
     riskScore: top,
     detectedAt: new Date().toISOString(),
     removed,
